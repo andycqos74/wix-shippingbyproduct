@@ -1,0 +1,38 @@
+{
+  "name": "shipping-by-product",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "wix app build",
+    "dev": "wix app dev",
+    "env": "wix app env",
+    "generate": "wix app generate",
+    "preview": "wix app preview",
+    "release": "wix app release",
+    "typecheck": "tsc --noEmit",
+    "wix": "wix",
+    "test": "node --test test/bands-logic.test.mjs",
+    "predev": "node scripts/stamp-build.mjs",
+    "prebuild": "node scripts/stamp-build.mjs",
+    "prerelease": "node scripts/stamp-build.mjs && wix app build",
+    "pretypecheck": "node scripts/stamp-build.mjs"
+  },
+  "dependencies": {
+    "@wix/dashboard": "^1.3.48",
+    "@wix/data": "^1.0.546",
+    "@wix/design-system": "^1.341.0",
+    "@wix/ecom": "^1.0.2685",
+    "@wix/essentials": "^1.0.15",
+    "@wix/stores": "^1.0.1000",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.1",
+    "@wix/cli": "^1.2.14",
+    "@wix/cli-zero-config-flow": "^1.0.7",
+    "@wix/custom-extensions": "^1.0.8",
+    "typescript": "~6.0.2"
+  }
+}
