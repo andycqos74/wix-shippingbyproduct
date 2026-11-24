@@ -1,8 +1,10 @@
 // Every Wix API call the app makes. UI and plugin code call these, never the SDKs directly.
 import { items } from '@wix/data';
 import { catalogVersioning, products, productsV3 } from '@wix/stores';
-import { BANDS_COLLECTION_ID, PRODUCT_BANDS_COLLECTION_ID } from './config';
-import { type Band, type CartLine, type ProductBand, productIdOf, toPrice } from './bands-logic';
+import { BANDS_COLLECTION_ID, PRODUCT_BANDS_COLLECTION_ID, SETTINGS_COLLECTION_ID } from './config';
+import {
+  type Band, type CartLine, type CollectionSettings, type ProductBand, DEFAULT_COLLECTION, productIdOf, toPrice,
+} from './bands-logic';
 
 export type CatalogVersion = 'V1_CATALOG' | 'V3_CATALOG' | 'STORES_NOT_INSTALLED';
 
@@ -28,6 +30,7 @@ const asBand = (row: any): Band => ({
   deliveryTime: row.deliveryTime || undefined,
   isDefault: !!row.isDefault,
   sortOrder: row.sortOrder ?? 0,
+  collectionAvailable: row.collectionAvailable !== false,
 });
 
 // ---------- checkout (called by the shipping-rates plugin) ----------
@@ -61,6 +64,7 @@ export async function saveBand(band: Partial<Band>): Promise<Band> {
     deliveryTime: (band.deliveryTime ?? '').trim(),
     isDefault: !!band.isDefault,
     sortOrder: band.sortOrder ?? 0,
+    collectionAvailable: band.collectionAvailable !== false,
   };
   const saved = asBand(await tag('items.save', items.save(BANDS_COLLECTION_ID, data as any)));
   if (saved.isDefault) {
@@ -79,6 +83,34 @@ export async function deleteBand(bandId: string): Promise<number> {
   }
   await tag('items.remove', items.remove(BANDS_COLLECTION_ID, bandId));
   return ids.length;
+}
+
+// ---------- collect in store ----------
+
+const COLLECTION_ROW = 'collection';
+
+/** The Collect in store settings. Off until saved on the dashboard page. */
+export async function getCollectionSettings(): Promise<CollectionSettings> {
+  const row: any = await tag('items.get', items.get(SETTINGS_COLLECTION_ID, COLLECTION_ROW));
+  if (!row) return { ...DEFAULT_COLLECTION };
+  return {
+    enabled: !!row.enabled,
+    title: row.title || DEFAULT_COLLECTION.title,
+    price: toPrice(row.price) ?? 0,
+    pickupTime: row.pickupTime || undefined,
+    instructions: row.instructions || undefined,
+  };
+}
+
+export async function saveCollectionSettings(s: CollectionSettings) {
+  await tag('items.save', items.save(SETTINGS_COLLECTION_ID, {
+    _id: COLLECTION_ROW,
+    enabled: !!s.enabled,
+    title: (s.title ?? '').trim() || DEFAULT_COLLECTION.title,
+    price: toPrice(s.price) ?? 0,
+    pickupTime: (s.pickupTime ?? '').trim(),
+    instructions: (s.instructions ?? '').trim(),
+  } as any));
 }
 
 // ---------- product assignments ----------

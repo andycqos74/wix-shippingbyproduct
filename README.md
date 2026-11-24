@@ -15,7 +15,9 @@ the **highest band among its items, once**:
 | Where | What |
 |---|---|
 | **Shipping bands page** (dashboard sidebar, under Apps) | Add, edit and delete bands (name shown at checkout, price, optional delivery time). Tick one as **Default**. Below that, every store product with a band picker. Filter by band or *No band set*, search by name, and **Apply to N** sets a band on every product shown in one go. |
-| **Cart and checkout** | The app's Shipping Rates plugin returns one delivery option: the highest band in the cart, with its delivery time. |
+| **Collection available** (column in the Bands table, and in the band form) | Untick it on a band and its products can't be collected. Ticked (the default, including for bands made before this column existed) leaves collection as normal. |
+| **Collect in store card** (same page) | Switch on the app's own collect-in-store option and set its name, price, ready time and instructions. Collection is from the store's business address. |
+| **Cart and checkout** | The app's Shipping Rates plugin returns the delivery option for the highest band in the cart, with its delivery time. If collect in store is switched on and **every** item's band has Collection available ticked, it also returns the collect-in-store option. |
 
 Rules:
 
@@ -28,6 +30,11 @@ Rules:
 - If no band is set up, or the bands can't be read, **no delivery option is offered** and checkout
   can't complete. That's deliberate: failing loudly beats charging the wrong postage. The reason is
   in the app's logs.
+- One item from a band with Collection available unticked removes collect in store for the whole order.
+  Delivery is unaffected. An unbanded item follows the default (or dearest) band's setting.
+- Wix always shows its own local pickup option when it's switched on in a region, and an app can't
+  hide it. So to control collection per band, turn on **Collect in store** on the app page and **switch
+  off Wix's local pickup** in the region. Until you do both, checkout works exactly as before.
 - Deleting a band un-assigns its products, so they fall back to the default band.
 - Wix caches the rate for up to 10 minutes per cart, so a price change can take that long to show on
   an open cart.
@@ -43,7 +50,7 @@ src/
   lib/config.ts           collection IDs, fallback currency
   components/common.tsx   error text, toasts, build stamp
   extensions/
-    backend/data-collections/              the Shipping bands + Product shipping bands collections
+    backend/data-collections/              the Shipping bands, Product shipping bands and Settings collections
     backend/service-plugins/shipping-bands/ the eCommerce Shipping Rates plugin (cart/checkout)
     dashboard/pages/shipping-bands/        the dashboard page
 test/bands-logic.test.mjs
@@ -70,6 +77,9 @@ The Wix CLI needs Node 24.22.1 or later (`.nvmrc`).
    - in **Settings → Shipping & fulfilment**, open your region, switch on **Shipping bands** under
      installed apps, and **turn off the region's existing rates** (otherwise the customer can pick the cheaper one)
    - add the pen alone to the cart: £1.55. Add the jumper: £5.50, once
+   - collection: tick **Offer collect in store** on the app page and save, switch off Wix's local pickup
+     in the region, untick **Collection available** on Parcel. The pen alone offers Large letter and
+     Collect in store; pen + jumper offers Parcel only
 4. **Go live.** Run `npm run release`, then install the app on the live site from the app dashboard
    (private apps get a direct install link), and repeat the shipping-region step there.
 
@@ -84,3 +94,5 @@ check. These depend on Wix behaviour:
 2. That the shipping plugin, which runs as the app, can read the app's own collections. Their
    permissions are admin-only so site visitors can't read them.
 3. The permission names in step 2, which Wix sometimes renames.
+4. That Wix shows the app's collect-in-store option as a pickup (no delivery address asked for) and uses
+   the business address it sends the app as `shippingOrigin`. Wix documents `pickupDetails` for this.
