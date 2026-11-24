@@ -6,6 +6,8 @@
 //   - A product with no band uses the band ticked "Default". If none is ticked it uses the
 //     dearest band, so a forgotten product is never posted for less than it costs.
 //   - Non-shippable items (digital products, gift cards) are ignored.
+//   - "Collect in store" is offered only when every shippable item's band allows collection.
+//     Bands allow it unless "Collection available" is unticked, so existing bands keep it.
 
 export interface Band {
   _id: string;
@@ -14,7 +16,22 @@ export interface Band {
   deliveryTime?: string;
   isDefault?: boolean;
   sortOrder?: number;
+  /** Unticked (false) = items in this band can't be collected. Missing counts as available. */
+  collectionAvailable?: boolean;
 }
+
+/** The app's "Collect in store" option. Replaces Wix's own local pickup in the region. */
+export interface CollectionSettings {
+  enabled: boolean;
+  title: string;
+  price: number;
+  pickupTime?: string;
+  instructions?: string;
+}
+
+export const DEFAULT_COLLECTION: CollectionSettings = { enabled: false, title: 'Collect in store', price: 0 };
+
+export const allowsCollection = (b: Band | undefined) => b?.collectionAvailable !== false;
 
 /** One row per product; the row's _id is the product ID, so there can't be two. */
 export interface ProductBand {
@@ -33,7 +50,11 @@ export interface CartLine {
 export interface RateOption {
   code: string;
   title: string;
-  logistics?: { deliveryTime: string };
+  logistics?: {
+    deliveryTime?: string;
+    instructions?: string;
+    pickupDetails?: { address?: any; pickupMethod: 'STORE_PICKUP' };
+  };
   cost: { price: string; currency: string };
 }
 
@@ -66,6 +87,10 @@ export interface Pick {
   band: Band;
   /** Names of cart lines that had no band and were charged at the fallback band. */
   unbanded: string[];
+  /** Whether every item's band allows collection. */
+  collectable: boolean;
+  /** Names of items whose band doesn't allow collection. */
+  notCollectable: string[];
 }
 
 /**
@@ -83,14 +108,17 @@ export function pickBand(lines: CartLine[], bands: Band[], bandByProduct: Map<st
 
   let chosen: Band | undefined;
   const unbanded: string[] = [];
+  const notCollectable: string[] = [];
   for (const li of shippable) {
     const pid = productIdOf(li);
     const assigned = pid ? byId.get(bandByProduct.get(pid) ?? '') : undefined;
     const band = assigned ?? fallback;
-    if (!assigned) unbanded.push(li.name || pid || 'unknown item');
+    const name = li.name || pid || 'unknown item';
+    if (!assigned) unbanded.push(name);
+    if (!allowsCollection(band)) notCollectable.push(name);
     if (!chosen || toPrice(band.price)! > toPrice(chosen.price)!) chosen = band;
   }
-  return { band: chosen!, unbanded };
+  return { band: chosen!, unbanded, collectable: notCollectable.length === 0, notCollectable };
 }
 
 /** The rate Wix shows at cart/checkout for a band. */
@@ -100,6 +128,27 @@ export function toRate(band: Band, currency: string): RateOption {
     title: band.title,
     ...(band.deliveryTime ? { logistics: { deliveryTime: band.deliveryTime } } : {}),
     cost: { price: toPrice(band.price)!.toFixed(2), currency },
+  };
+}
+
+/**
+ * The "Collect in store" option, or null when it shouldn't be offered (switched off, or an
+ * item's band doesn't allow collection). The address is the store's business address.
+ */
+export function toCollectionRate(
+  settings: CollectionSettings | null | undefined, pick: Pick, currency: string, address?: unknown,
+): RateOption | null {
+  if (!settings?.enabled || !pick.collectable) return null;
+  const price = toPrice(settings.price) ?? 0;
+  return {
+    code: 'collect-in-store',
+    title: settings.title?.trim() || DEFAULT_COLLECTION.title,
+    logistics: {
+      ...(settings.pickupTime ? { deliveryTime: settings.pickupTime } : {}),
+      ...(settings.instructions ? { instructions: settings.instructions } : {}),
+      pickupDetails: { ...(address ? { address } : {}), pickupMethod: 'STORE_PICKUP' },
+    },
+    cost: { price: price.toFixed(2), currency },
   };
 }
 

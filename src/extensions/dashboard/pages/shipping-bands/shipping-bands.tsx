@@ -5,15 +5,18 @@ import {
   SectionHelper, Table, TableToolbar, Text, WixDesignSystemProvider,
 } from '@wix/design-system';
 import '@wix/design-system/styles.global.css';
-import { type Band, fallbackBand, formatMoney, sortBands, validateBand } from '../../../../lib/bands-logic';
 import {
-  type CatalogVersion, type StoreProduct, deleteBand, listBands, listProductBands, listStoreProducts,
-  saveBand, setProductBand, setProductBands,
+  type Band, type CollectionSettings, allowsCollection, fallbackBand, formatMoney, sortBands, toPrice, validateBand,
+} from '../../../../lib/bands-logic';
+import {
+  type CatalogVersion, type StoreProduct, deleteBand, getCollectionSettings, listBands, listProductBands,
+  listStoreProducts, saveBand, saveCollectionSettings, setProductBand, setProductBands,
 } from '../../../../lib/wix-ops';
 import { buildLabel, errorText, toastError, toastOk } from '../../../../components/common';
 
-type Draft = { _id?: string; title: string; price: string; deliveryTime: string; isDefault: boolean };
-const EMPTY_DRAFT: Draft = { title: '', price: '', deliveryTime: '', isDefault: false };
+type Draft = { _id?: string; title: string; price: string; deliveryTime: string; isDefault: boolean; collectionAvailable: boolean };
+const EMPTY_DRAFT: Draft = { title: '', price: '', deliveryTime: '', isDefault: false, collectionAvailable: true };
+type CollectionDraft = Omit<CollectionSettings, 'price'> & { price: string };
 type Row = StoreProduct & { bandId: string };
 
 const ShippingBandsPage: FC = () => {
@@ -26,15 +29,21 @@ const ShippingBandsPage: FC = () => {
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('ALL');
   const [bulkBand, setBulkBand] = useState<string>();
+  const [collection, setCollection] = useState<CollectionDraft>();
+  const [collectionDirty, setCollectionDirty] = useState(false);
 
   const load = useCallback(async () => {
     setError('');
     try {
-      const [b, assigned, store] = await Promise.all([listBands(), listProductBands(), listStoreProducts()]);
+      const [b, assigned, store, c] = await Promise.all([
+        listBands(), listProductBands(), listStoreProducts(), getCollectionSettings(),
+      ]);
       const byProduct = new Map(assigned.map((a) => [a._id, a.bandId]));
       setBands(sortBands(b));
       setCatalog(store.catalog);
       setRows(store.products.map((p) => ({ ...p, bandId: byProduct.get(p.productId) ?? '' })));
+      setCollection({ ...c, price: String(c.price), pickupTime: c.pickupTime ?? '', instructions: c.instructions ?? '' });
+      setCollectionDirty(false);
     } catch (e) {
       setError(errorText(e));
     }
@@ -84,6 +93,43 @@ const ShippingBandsPage: FC = () => {
       await load();
     } catch (e) {
       toastError(e, "Couldn't delete the band: ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onToggleCollection(b: Band) {
+    const collectionAvailable = !allowsCollection(b);
+    setBusy(true);
+    try {
+      await saveBand({ ...b, collectionAvailable });
+      setBands((bs) => bs?.map((x) => (x._id === b._id ? { ...x, collectionAvailable } : x)));
+      toastOk(`Collection ${collectionAvailable ? 'available' : 'not available'} for "${b.title}".`);
+    } catch (e) {
+      toastError(e, "Couldn't update the band: ");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ---------- collect in store ----------
+
+  const editCollection = (patch: Partial<CollectionDraft>) => {
+    setCollection((c) => (c ? { ...c, ...patch } : c));
+    setCollectionDirty(true);
+  };
+
+  async function onSaveCollection() {
+    if (!collection) return;
+    const price = toPrice(collection.price === '' ? 0 : collection.price);
+    if (price === null) return toastError('Enter a collection price of 0 or more.');
+    setBusy(true);
+    try {
+      await saveCollectionSettings({ ...collection, price });
+      setCollectionDirty(false);
+      toastOk('Saved the collect in store settings.');
+    } catch (e) {
+      toastError(e, "Couldn't save the collect in store settings: ");
     } finally {
       setBusy(false);
     }
@@ -144,12 +190,21 @@ const ShippingBandsPage: FC = () => {
     { title: 'Delivery time', render: (b: Band) => <Text size="small" secondary>{b.deliveryTime || '—'}</Text> },
     { title: 'Products', render: (b: Band) => <Text size="small">{countFor(b._id)}</Text> },
     {
+      title: 'Collection available',
+      render: (b: Band) => (
+        <Checkbox checked={allowsCollection(b)} disabled={busy} onChange={() => onToggleCollection(b)} />
+      ),
+    },
+    {
       title: '',
       align: 'end' as const,
       render: (b: Band) => (
         <Box gap="SP2" align="right">
           <Button size="tiny" priority="secondary" disabled={busy}
-            onClick={() => setDraft({ _id: b._id, title: b.title, price: String(b.price), deliveryTime: b.deliveryTime ?? '', isDefault: !!b.isDefault })}>
+            onClick={() => setDraft({
+              _id: b._id, title: b.title, price: String(b.price), deliveryTime: b.deliveryTime ?? '',
+              isDefault: !!b.isDefault, collectionAvailable: allowsCollection(b),
+            })}>
             Edit
           </Button>
           <Button size="tiny" priority="secondary" skin="destructive" disabled={busy} onClick={() => onDeleteBand(b)}>
@@ -219,6 +274,10 @@ const ShippingBandsPage: FC = () => {
                       <Checkbox checked={draft.isDefault} onChange={() => setDraft({ ...draft, isDefault: !draft.isDefault })}>
                         Default for products with no band
                       </Checkbox>
+                      <Checkbox checked={draft.collectionAvailable}
+                        onChange={() => setDraft({ ...draft, collectionAvailable: !draft.collectionAvailable })}>
+                        Collection available
+                      </Checkbox>
                       <Box gap="SP2">
                         <Button size="small" priority="secondary" disabled={busy} onClick={() => setDraft(null)}>Cancel</Button>
                         <Button size="small" disabled={busy} onClick={onSaveBand}>{draft._id ? 'Save' : 'Add'}</Button>
@@ -227,6 +286,47 @@ const ShippingBandsPage: FC = () => {
                   </Card.Content>
                 )}
                 {bands.length > 0 && <Table data={bands} columns={bandColumns} rowVerticalPadding="medium"><Table.Content /></Table>}
+              </Card>
+            )}
+
+            {bands && collection && (
+              <Card>
+                <Card.Header title="Collect in store"
+                  subtitle="Offered at checkout only when every item's band has Collection available ticked. Collection is from your business address."
+                  suffix={
+                    <Checkbox checked={collection.enabled} disabled={busy} onChange={() => editCollection({ enabled: !collection.enabled })}>
+                      Offer collect in store
+                    </Checkbox>
+                  } />
+                <Card.Content>
+                  <Box direction="vertical" gap="SP3">
+                    {collection.enabled && (
+                      <SectionHelper appearance="warning">
+                        Switch off Wix's own local pickup for this region (Settings → Shipping &amp; fulfilment). Wix
+                        always shows its own pickup option, so it can't be hidden for products that can't be collected.
+                      </SectionHelper>
+                    )}
+                    <Box gap="SP3" verticalAlign="bottom">
+                      <FormField label="Name (shown at checkout)">
+                        <Input value={collection.title} disabled={!collection.enabled} placeholder="Collect in store"
+                          onChange={(e) => editCollection({ title: e.target.value })} />
+                      </FormField>
+                      <FormField label="Price (£)">
+                        <Input value={collection.price} type="number" disabled={!collection.enabled} placeholder="0"
+                          onChange={(e) => editCollection({ price: e.target.value })} />
+                      </FormField>
+                      <FormField label="Ready for collection (optional)">
+                        <Input value={collection.pickupTime ?? ''} disabled={!collection.enabled} placeholder="e.g. Next working day"
+                          onChange={(e) => editCollection({ pickupTime: e.target.value })} />
+                      </FormField>
+                      <FormField label="Instructions (optional)">
+                        <Input value={collection.instructions ?? ''} disabled={!collection.enabled} placeholder="e.g. Open Mon-Sat 9-5"
+                          onChange={(e) => editCollection({ instructions: e.target.value })} />
+                      </FormField>
+                      <Button size="small" disabled={busy || !collectionDirty} onClick={onSaveCollection}>Save</Button>
+                    </Box>
+                  </Box>
+                </Card.Content>
               </Card>
             )}
 

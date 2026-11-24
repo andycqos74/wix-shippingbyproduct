@@ -10,6 +10,8 @@ export default {
     { key: 'deliveryTime', displayName: 'Delivery time', type: 'TEXT' },
     { key: 'isDefault', displayName: 'Default for products with no band', type: 'BOOLEAN' },
     { key: 'sortOrder', displayName: 'Sort order', type: 'NUMBER' },
+    // Empty counts as ticked, so bands saved before this field existed still allow collection.
+    { key: 'collectionAvailable', displayName: 'Collection available', type: 'BOOLEAN' },
   ],
   // Dashboard-only data. The shipping-rates plugin reads it as the app, not as the visitor.
   dataPermissions: {

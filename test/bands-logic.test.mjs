@@ -84,3 +84,52 @@ test('validateBand catches missing name, bad price and duplicate names', () => {
   assert.match(L.validateBand({ title: 'parcel', price: 2 }, BANDS), /already/);
   assert.equal(L.validateBand({ _id: 'large', title: 'Parcel', price: 6 }, BANDS), '');
 });
+
+// ---------- collect in store ----------
+
+const COLLECT = { enabled: true, title: 'Collect in store', price: 0, pickupTime: 'Next working day' };
+const ORIGIN = { country: 'GB', city: 'Leeds', addressLine: '1 High St' };
+const noCollect = (b) => ({ ...b, collectionAvailable: false });
+
+test('bands allow collection unless unticked', () => {
+  assert.equal(L.allowsCollection(LETTER), true);
+  assert.equal(L.allowsCollection({ ...LETTER, collectionAvailable: true }), true);
+  assert.equal(L.allowsCollection(noCollect(LETTER)), false);
+});
+
+test('collection is offered when every band allows it', () => {
+  const pick = L.pickBand([line('pen', 'Pen'), line('jumper', 'Jumper')], BANDS, assigned);
+  assert.equal(pick.collectable, true);
+  assert.deepEqual(L.toCollectionRate(COLLECT, pick, 'GBP', ORIGIN), {
+    code: 'collect-in-store', title: 'Collect in store',
+    logistics: { deliveryTime: 'Next working day', pickupDetails: { address: ORIGIN, pickupMethod: 'STORE_PICKUP' } },
+    cost: { price: '0.00', currency: 'GBP' },
+  });
+});
+
+test('one item from a no-collection band removes collection, delivery unchanged', () => {
+  const bands = [LETTER, SMALL, noCollect(LARGE)];
+  const pick = L.pickBand([line('pen', 'Pen'), line('jumper', 'Jumper')], bands, assigned);
+  assert.equal(pick.band._id, 'large');
+  assert.equal(pick.collectable, false);
+  assert.deepEqual(pick.notCollectable, ['Jumper']);
+  assert.equal(L.toCollectionRate(COLLECT, pick, 'GBP', ORIGIN), null);
+});
+
+test('a cheaper no-collection item still removes collection', () => {
+  const pick = L.pickBand([line('pen', 'Pen'), line('jumper', 'Jumper')], [noCollect(LETTER), SMALL, LARGE], assigned);
+  assert.equal(pick.band._id, 'large');
+  assert.equal(L.toCollectionRate(COLLECT, pick, 'GBP'), null);
+});
+
+test('unbanded items follow the fallback band for collection', () => {
+  const pick = L.pickBand([line('mug', 'Mug')], [LETTER, SMALL, noCollect(LARGE)], assigned);
+  assert.deepEqual(pick.notCollectable, ['Mug']);
+});
+
+test('collection switched off is never offered', () => {
+  const pick = L.pickBand([line('pen', 'Pen')], BANDS, assigned);
+  assert.equal(L.toCollectionRate({ ...COLLECT, enabled: false }, pick, 'GBP'), null);
+  assert.equal(L.toCollectionRate(null, pick, 'GBP'), null);
+  assert.equal(L.toCollectionRate(L.DEFAULT_COLLECTION, pick, 'GBP'), null);
+});
