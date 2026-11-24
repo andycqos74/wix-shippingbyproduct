@@ -91,8 +91,9 @@ check. These depend on Wix behaviour:
 
 1. That `catalogReference.catalogItemId` on a cart line is the Wix Stores product ID, as the Stores
    APIs return it. Wix documents it that way for Wix Stores items.
-2. That the shipping plugin, which runs as the app, can read the app's own collections. Their
-   permissions are admin-only so site visitors can't read them.
+2. That the shipping plugin can read the app's own collections. At checkout it runs as the shopper,
+   and the collections are editor-only, so the checkout reads use `auth.elevate` to run as the app.
+   If checkout says no delivery is available, this is the first thing to check in the app's logs.
 3. The permission names in step 2, which Wix sometimes renames.
 4. That Wix shows the app's collect-in-store option as a pickup (no delivery address asked for) and uses
    the business address it sends the app as `shippingOrigin`. Wix documents `pickupDetails` for this.

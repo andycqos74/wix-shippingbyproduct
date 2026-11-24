@@ -4,7 +4,7 @@
 import { shippingRates } from '@wix/ecom/service-plugins';
 import { DEFAULT_CURRENCY } from '../../../../lib/config';
 import { NOTHING_TO_POST, pickBand, toCollectionRate, toRate } from '../../../../lib/bands-logic';
-import { getBandsForCart, getCollectionSettings } from '../../../../lib/wix-ops';
+import { getBandsForCart, getCollectionSettingsForCheckout } from '../../../../lib/wix-ops';
 
 shippingRates.provideHandlers({
   async getShippingRates({ request, metadata }) {
@@ -14,7 +14,7 @@ shippingRates.provideHandlers({
       const [{ bands, bandByProduct }, collection] = await Promise.all([
         getBandsForCart(lines),
         // A settings problem shouldn't stop delivery: just don't offer collection.
-        getCollectionSettings().catch((e) => {
+        getCollectionSettingsForCheckout().catch((e) => {
           console.error('Shipping bands: could not read the collect in store settings.', e);
           return null;
         }),

@@ -1,5 +1,6 @@
 // Every Wix API call the app makes. UI and plugin code call these, never the SDKs directly.
 import { items } from '@wix/data';
+import { auth } from '@wix/essentials';
 import { catalogVersioning, products, productsV3 } from '@wix/stores';
 import { BANDS_COLLECTION_ID, PRODUCT_BANDS_COLLECTION_ID, SETTINGS_COLLECTION_ID } from './config';
 import {
@@ -34,14 +35,19 @@ const asBand = (row: any): Band => ({
 });
 
 // ---------- checkout (called by the shipping-rates plugin) ----------
+//
+// At checkout the plugin runs as the shopper, who can't read the app's collections (they're
+// editor-only). These reads run as the app instead. Backend only: elevate() isn't allowed in
+// the dashboard page, which uses the plain functions further down.
 
 /** All bands, plus the band of each product in this cart. Two reads, whatever the cart size. */
 export async function getBandsForCart(lines: CartLine[]) {
+  const query = auth.elevate(items.query);
   const ids = [...new Set(lines.map(productIdOf).filter((x): x is string => !!x))];
   const [bands, rows] = await Promise.all([
-    listBands(),
+    tag('items.query', query(BANDS_COLLECTION_ID).limit(1000).find()).then((r) => r.items.map(asBand)),
     ids.length
-      ? tag('items.query', items.query(PRODUCT_BANDS_COLLECTION_ID).hasSome('_id', ids).limit(1000).find()).then((r) => r.items)
+      ? tag('items.query', query(PRODUCT_BANDS_COLLECTION_ID).hasSome('_id', ids).limit(1000).find()).then((r) => r.items)
       : Promise.resolve([] as any[]),
   ]);
   const bandByProduct = new Map<string, string>(rows.filter((r: any) => r.bandId).map((r: any) => [r._id, r.bandId]));
@@ -91,7 +97,15 @@ const COLLECTION_ROW = 'collection';
 
 /** The Collect in store settings. Off until saved on the dashboard page. */
 export async function getCollectionSettings(): Promise<CollectionSettings> {
-  const row: any = await tag('items.get', items.get(SETTINGS_COLLECTION_ID, COLLECTION_ROW));
+  return toCollectionSettings(await tag('items.get', items.get(SETTINGS_COLLECTION_ID, COLLECTION_ROW)));
+}
+
+/** Same as getCollectionSettings, read as the app. Checkout (backend) only. */
+export async function getCollectionSettingsForCheckout(): Promise<CollectionSettings> {
+  return toCollectionSettings(await tag('items.get', auth.elevate(items.get)(SETTINGS_COLLECTION_ID, COLLECTION_ROW)));
+}
+
+function toCollectionSettings(row: any): CollectionSettings {
   if (!row) return { ...DEFAULT_COLLECTION };
   return {
     enabled: !!row.enabled,
